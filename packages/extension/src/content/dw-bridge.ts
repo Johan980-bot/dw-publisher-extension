@@ -17,14 +17,16 @@
  */
 
 /** 当前内置 driver 支持的主站平台编码（与主站 aid_platform_profile.platform 一致）。
- * 头条/小红书/网易号/腾讯云/阿里云 driver 在上游私有仓库，本 fork 暂缺。 */
+ * 小红书/腾讯云/阿里云 driver 在上游私有仓库，本 fork 暂缺。 */
 const DW_SUPPORTED_PLATFORMS = [
   'zhihu',
+  'toutiao',
   'baijiahao',
   'weibo',
   'juejin',
   'csdn',
   'bilibili',
+  'netease',
   'sohu',
   'cnblogs',
   '51cto',

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "DreamWorks 分发助手",
   "description": "把 Dream Works 改写好的文章一键填进知乎、头条、百家号等平台草稿箱。只进草稿不代发，不读取平台账号密码。基于 Wechatsync（GPL-3.0）二次开发。",
-  "version": "2.0.12",
+  "version": "2.0.13",
   "version_name": "2.0.8 (based on Wechatsync 2.0.10)",
   "icons": {
     "16": "assets/icon-16.png",
