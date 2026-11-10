@@ -181,7 +181,7 @@ const AUTH_CACHE_TTL_AUTHENTICATED = 5 * 60 * 1000 // 已登录：5 分钟缓存
 const AUTH_CACHE_TTL_UNAUTHENTICATED = 30 * 1000 // 未登录：30 秒缓存（用户可能随时登录）
 const AUTH_CHECK_CONCURRENCY = 5 // 并行检查数量
 const AUTH_CHECK_TIMEOUT = 10 * 1000 // 单个平台认证检查超时：10 秒
-const PUBLISH_TIMEOUT = 10 * 60 * 1000 // 单个平台发布超时：10 分钟（包含图片上传）
+const PUBLISH_TIMEOUT = 3 * 60 * 1000 // 单个平台发布超时：3 分钟（含图片上传；只填草稿不该更久，卡住的平台超时后放行整批）
 
 /**
  * 带超时的 Promise 包装
