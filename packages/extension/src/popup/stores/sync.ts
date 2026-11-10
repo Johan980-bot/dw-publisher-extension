@@ -338,17 +338,12 @@ export const useSyncStore = create<SyncState>((set, get) => ({
         return
       }
 
-      // 如果没有待同步文章，尝试从当前标签页提取
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      logger.debug('loadArticle - current tab:', tab?.url)
-      if (!tab?.id) return
-
-      const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ARTICLE' })
-      logger.debug('loadArticle - response:', response)
-      if (response?.article) {
-        set({ article: response.article })
+      // 只识别 DreamWorks 工作台的文章：其他页面的通用提取结果一律不认
+      const dwCtx = await fetchDwSiteContext()
+      if (dwCtx?.article) {
+        set({ article: dwCtx.article })
         // 追踪内容特征
-        trackArticleProfile(response.article, 'popup')
+        trackArticleProfile(dwCtx.article, 'popup')
       }
     } catch (error) {
       logger.error('Failed to extract article:', error)
