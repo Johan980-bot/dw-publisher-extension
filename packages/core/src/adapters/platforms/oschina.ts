@@ -176,7 +176,8 @@ export class OschinaAdapter extends CodeAdapter {
         platform: this.meta.id,
         success: true,
         postId: draftId,
-        postUrl: `https://my.oschina.net/u/${this.userId}/blog/write/draft/${draftId}`,
+        // 新版编辑器无按草稿直达链接，统一跳到新版草稿箱
+        postUrl: `https://my.oschina.net/u/${this.userId}/?key=blog-sync`,
         draftOnly: true,
         timestamp: now,
       }

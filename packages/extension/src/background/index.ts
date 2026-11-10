@@ -38,6 +38,30 @@ import {
 
 const logger = createLogger('Background')
 
+/**
+ * 清理正文里的相对路径资源。
+ * 相对路径图片/链接多为旧稿导入时带入的失效引用，在 Service Worker 上下文无法下载，
+ * 残留在正文里会被平台判为「图片链接异常」「内容格式错误」：
+ * 相对图片整段删除，相对链接退化为纯文字（与主站生成平台版本时的清洗规则一致）。
+ */
+function stripRelativeAssets(content: string): string {
+  if (!content) return content
+  return content
+    .replace(/!\[[^\]]*\]\(\s*(?!https?:\/\/|data:|\/\/)[^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\(\s*(?!https?:\/\/|data:|\/\/|#|mailto:)[^)]*\)/g, '$1')
+    .replace(/<img[^>]+src=(?:"|')(?!https?:\/\/|data:|\/\/)[^"']*(?:"|')[^>]*>\s*/gi, '')
+    .replace(/<a[^>]+href=(?:"|')(?!https?:\/\/|data:|\/\/|#|mailto:)[^"']*(?:"|')[^>]*>([\s\S]*?)<\/a>/gi, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+function sanitizeArticle(article: any): any {
+  if (!article || typeof article !== 'object') return article
+  const cleaned = { ...article }
+  if (typeof cleaned.markdown === 'string') cleaned.markdown = stripRelativeAssets(cleaned.markdown)
+  if (typeof cleaned.html === 'string') cleaned.html = stripRelativeAssets(cleaned.html)
+  return cleaned
+}
+
 type CMSType = 'wordpress' | 'typecho' | 'metaweblog'
 
 // 消息类型
@@ -160,6 +184,9 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       }
       await assertDwSiteLogin(authToken, siteOrigin)
 
+      // 清掉正文里无法下载的相对路径资源，避免被平台以「图片链接异常」「内容格式错误」拒收
+      const sanitizedArticle = sanitizeArticle(article)
+
       const rateLimitWarning = await checkSyncFrequency(platforms)
 
       const syncId = passedSyncId || generateSyncId()
@@ -173,7 +200,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
       }
 
       const { results: allResults } = await performSync(
-        article,
+        sanitizedArticle,
         platforms,
         {
           skipHistory,
