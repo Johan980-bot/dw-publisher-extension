@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import tips from '@/data/tips.json'
 
-const AUTHOR_URL = 'https://fun0.netlify.app/about/?utm_source=wechatsync_tip'
-
 /**
  * 同步等待时显示的随机功能提示
  * 每次挂载随机选一条，之后每 5 秒轮换，可关闭
@@ -39,17 +37,9 @@ export function TipBar() {
         <span className="text-xs">{isNotice ? '⚠️' : '💡'}</span>
         <span className="font-medium text-[11px]">{isNotice ? '使用须知' : '你知道吗'}</span>
         {isNew && <span className="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-medium px-1 py-px rounded">NEW</span>}
-        <a
-          href={AUTHOR_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto text-[10px] text-gray-300 dark:text-gray-600 hover:text-gray-400 dark:hover:text-gray-500 transition-colors"
-        >
-          来自作者 fun
-        </a>
         <button
           onClick={() => setDismissed(true)}
-          className="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
+          className="ml-auto text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 transition-colors"
         >
           <X className="w-3 h-3" />
         </button>

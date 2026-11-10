@@ -1,3 +1,47 @@
+# DreamWorks 分发助手 (dw-publisher-extension)
+
+> 本仓库是 [Wechatsync（文章同步助手）](https://github.com/wechatsync/Wechatsync) 的 fork，
+> 为 [Dream Works](https://dream-works.zrt-zkry.com)（AI 内容工厂）的多平台文章分发场景定制。
+> 协议沿用上游 **GPL-3.0**（见 [LICENSE](./LICENSE)），修改说明见 [NOTICE.md](./NOTICE.md)。
+
+## 与上游的区别
+
+1. **品牌与分发**：打包为「DreamWorks 分发助手」，从 Dream Works 官网 `/extension` 页分发离线 zip；
+2. **主站握手**：新增 `src/content/dw-bridge.ts`，响应主站文章工作台的 `dw-ext-ping` 握手，
+   上报扩展版本、driver 版本与支持平台；
+3. **driver 热更新通道**：扩展从主站 `GET /api/v1/extension/drivers` 拉取填稿脚本配置（10 分钟缓存），
+   平台改版时只改服务端配置，不需要用户重装扩展；
+4. **平台裁剪**：当前面向 Dream Works 的 11 个平台（知乎 / 百家号 / 微博 / 掘金 / CSDN / B 站专栏 /
+   搜狐号 / 博客园 / 51CTO / 思否 / 开源中国）。头条、小红书、网易号、腾讯云、阿里云的
+   driver 在上游私有仓库中，本 fork 不包含，后续自研补齐。
+
+## 安全边界
+
+- 只在用户已登录的标签页内操作编辑器，内容只进**草稿箱**，不代替用户点击发布；
+- 不读取、不传输、不存储任何平台的 Cookie 与账号密码。
+
+## 构建
+
+```bash
+pnpm install
+pnpm --filter @wechatsync/core build
+pnpm --filter @wechatsync/extension build
+# 产物在 packages/extension/dist；打包：
+cd packages/extension/dist && zip -r ../dw-publisher-extension.zip .
+```
+
+## 安装（开发者模式）
+
+1. 解压 zip 到固定目录；
+2. Chrome / Edge 地址栏输入 `chrome://extensions`，开启「开发者模式」；
+3. 「加载已解压的扩展程序」选择解压目录。
+
+---
+
+以下为上游 README 原文（保留，部分描述如"29+ 平台""小红书/头条支持"以上游完整版为准，与本 fork 的平台裁剪无关）：
+
+---
+
 # 文章同步助手 (Wechatsync)
 
 ![](https://img.shields.io/github/v/release/wechatsync/Wechatsync.svg)

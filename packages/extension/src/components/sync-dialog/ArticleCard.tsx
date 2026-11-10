@@ -15,10 +15,20 @@ export function ArticleCard({ article, onEdit, compact }: ArticleCardProps) {
         <div className="py-3 space-y-2">
           <div className="flex items-center justify-center text-muted-foreground">
             <FileText className="w-5 h-5 mr-2" />
-            <span className="text-sm">当前页面未检测到文章</span>
+            <span className="text-sm">本扩展只分发 DreamWorks 工作台的文章</span>
           </div>
           <p className="text-xs text-muted-foreground text-center">
-            请在文章页面使用
+            请在 GEO 文章工作台写好文章后，用「一键分发」发起
+          </p>
+          <p className="text-center">
+            <a
+              href="https://dream-works.zrt-zkry.com/writing/studio"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              打开 GEO 文章工作台 →
+            </a>
           </p>
         </div>
       </div>

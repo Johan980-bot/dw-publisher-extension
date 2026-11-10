@@ -34,6 +34,7 @@ export function SyncDialog({
   const selectedSet = new Set(selectedPlatforms)
   const authenticatedPlatforms = platforms.filter(p => p.isAuthenticated)
   const failedCount = results.filter(r => !r.success).length
+  const successCount = results.filter(r => r.success).length
 
   const isIdle = status === 'idle' || status === 'loading'
   const isSyncing = status === 'syncing'
@@ -77,6 +78,17 @@ export function SyncDialog({
             onToggle={onTogglePlatform}
             onSelectAll={handleSelectAll}
           />
+        )}
+
+        {/* Draft reminder — after sync completed */}
+        {isCompleted && (
+          <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 p-3 text-xs leading-relaxed text-emerald-800 dark:text-emerald-300">
+            <p className="font-medium mb-1">✅ 已保存到 {successCount} 个平台的草稿箱</p>
+            <p>
+              请到各平台「草稿箱」检查内容，确认无误后自己点击发布——扩展只负责填草稿，永远不会替你按发布按钮。
+              {failedCount > 0 ? `有 ${failedCount} 个平台失败，可点下方「重试失败项」。` : ''}
+            </p>
+          </div>
         )}
 
         {/* Share/review prompt — after sync completed */}
@@ -141,7 +153,7 @@ export function SyncDialog({
             )}
           >
             {!article
-              ? '请先打开文章页面'
+              ? '请到 GEO 文章工作台发起分发'
               : selectedPlatforms.length === 0
                 ? '请选择同步平台'
                 : `同步到 ${selectedPlatforms.length} 个平台`

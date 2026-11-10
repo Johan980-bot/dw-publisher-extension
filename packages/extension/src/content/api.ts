@@ -21,6 +21,8 @@ const logger = createLogger('Wechatsync')
 const SENSITIVE_API_WHITELIST = [
   'https://www.wechatsync.com',
   'https://developer.wechatsync.com',
+  'https://dream-works.zrt-zkry.com',
+  'http://localhost:3000',
   'http://localhost:8080',
 ];
 

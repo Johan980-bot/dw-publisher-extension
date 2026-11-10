@@ -1107,7 +1107,16 @@ function preprocessForMultiplePlatformsLocal(
  */
 window.addEventListener('message', async (event) => {
   try {
-    const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
+    let data: any = event.data
+    if (typeof data === 'string') {
+      // 页面自身常会 postMessage 字符串（统计SDK等），非 JSON 的一律忽略
+      try {
+        data = JSON.parse(data)
+      } catch {
+        return
+      }
+    }
+    if (!data || typeof data !== 'object') return
 
     if (data.type === 'CLOSE_EDITOR') {
       closeEditor()
@@ -1152,6 +1161,16 @@ window.addEventListener('message', async (event) => {
 })
 
 /**
+ * DreamWorks 主站判定：工作台页的取稿由 dw-bridge 向页面要母版+平台版本，
+ * 通用提取在 SPA 编辑器页只会抓到 UI 文本，且两个 content script 抢答 EXTRACT_ARTICLE 结果不确定。
+ * 与 manifest.json 中 dw-bridge 的 matches 保持一致。
+ */
+function isDreamWorksSite(): boolean {
+  const h = window.location.host
+  return h === 'dream-works.zrt-zkry.com' || h === 'localhost:3000' || h === '127.0.0.1:3000'
+}
+
+/**
  * 监听 background 消息，转发同步进度到编辑器
  */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -1160,6 +1179,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const url = window.location.href
     if (url.includes('mp.weixin.qq.com/cgi-bin/appmsg') || url.includes('mp.weixin.qq.com/s')) {
       return false // 不处理，交给 weixin-editor.ts 或 weixin.ts
+    }
+    if (isDreamWorksSite()) {
+      return false // 不处理，交给 dw-bridge.ts 从工作台页面取母版+平台版本
     }
     const loading = showLoading()
     extractArticle().then(article => {

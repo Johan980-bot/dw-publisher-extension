@@ -420,13 +420,16 @@ export async function syncToPlatform(
   try {
     // 使用平台特定的预处理内容（如果有）
     let platformArticle = article
-    const platformContents = (article as any).platformContents as Record<string, { html: string; markdown: string }> | undefined
+    const platformContents = (article as any).platformContents as Record<string, { html: string; markdown: string; title?: string; summary?: string }> | undefined
     if (platformContents?.[platformId]) {
       const content = platformContents[platformId]
       platformArticle = {
         ...article,
         html: content.html,
         markdown: content.markdown,
+        // DreamWorks 定制：一平台一稿时标题/摘要也可按平台覆盖
+        title: content.title || article.title,
+        summary: content.summary || article.summary,
       }
     }
 

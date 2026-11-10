@@ -86,7 +86,8 @@ export class WeiboAdapter extends CodeAdapter {
 
     const configMatch = html.match(/config:\s*JSON\.parse\('(.+?)'\)/)
     if (!configMatch) {
-      logger.error('Failed to find config in HTML')
+      // 未登录时编辑器页会跳到登录页，属正常情况；页面改版也会走到这里
+      logger.debug('Config not found in editor HTML (not logged in, or page structure changed)')
       return null
     }
 
@@ -107,7 +108,7 @@ export class WeiboAdapter extends CodeAdapter {
       logger.debug('User config:', this.userConfig)
       return this.userConfig
     } catch (e) {
-      logger.error('Failed to parse config:', e)
+      logger.debug('Failed to parse config:', e)
       return null
     }
   }

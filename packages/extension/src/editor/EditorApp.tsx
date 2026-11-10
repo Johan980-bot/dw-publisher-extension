@@ -240,7 +240,7 @@ export function EditorApp() {
         <div className="px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <img src={chrome.runtime.getURL('assets/icon-48.png')} alt="Logo" className="w-6 h-6" />
-            <span className="font-medium text-gray-700">同步助手 - 点击内容可直接修改</span>
+            <span className="font-medium text-gray-700">分发助手 - 点击内容可直接修改</span>
             {article?.extractor && (
               <span className="px-2 py-0.5 text-xs font-mono bg-gray-100 text-gray-500 rounded opacity-0 hover:opacity-100 transition-opacity" title="Content extractor used">
                 {article.extractor}

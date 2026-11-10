@@ -45,7 +45,7 @@ type MessageAction =
   | { type: 'GET_PLATFORMS' }
   | { type: 'CHECK_ALL_AUTH'; payload?: { forceRefresh?: boolean } }
   | { type: 'CHECK_AUTH'; payload: { platformId: string } }
-  | { type: 'SYNC_ARTICLE'; payload: { article: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string } }
+  | { type: 'SYNC_ARTICLE'; payload: { article: any; platforms: string[]; allSelectedPlatforms?: string[]; skipHistory?: boolean; source?: string; syncId?: string; authToken?: string; siteOrigin?: string } }
   | { type: 'OPEN_SYNC_PAGE'; path?: string }
   | { type: 'TEST_CMS_CONNECTION'; payload: { type: CMSType; url: string; username: string; password: string } }
   | { type: 'SYNC_TO_CMS'; payload: { accountId: string; article: any } }
@@ -66,6 +66,32 @@ type MessageAction =
   | { type: 'CLEAR_UPDATE_BADGE' }
   | { type: 'GET_PREPROCESS_CONFIGS'; platforms: string[] }
   | { type: 'TRIGGER_OPEN_EDITOR' }
+
+/**
+ * DreamWorks 定制：校验主站登录态。
+ * 工作台页面经 dw-bridge 把本站 token 带入分发请求；token 只用于向主站 whoami 接口鉴权，
+ * 不落库、不转发到任何第三方。校验失败即拒绝分发。
+ */
+async function assertDwSiteLogin(authToken: unknown, siteOrigin: unknown): Promise<void> {
+  if (typeof authToken !== 'string' || !authToken) {
+    throw new Error('请先在 DreamWorks 登录后再发起分发')
+  }
+  const origin =
+    typeof siteOrigin === 'string' && /^https?:\/\/(dream-works\.zrt-zkry\.com|localhost|127\.0\.0\.1)/.test(siteOrigin)
+      ? siteOrigin
+      : 'https://dream-works.zrt-zkry.com'
+  let resp: Response
+  try {
+    resp = await fetch(`${origin}/api/v1/extension/whoami`, {
+      headers: { Authorization: `Bearer ${authToken}`, Accept: 'application/json' },
+    })
+  } catch {
+    throw new Error('无法连接 DreamWorks 主站，请检查网络后重试')
+  }
+  if (!resp.ok) {
+    throw new Error('DreamWorks 登录状态已失效，请到 GEO 文章工作台重新登录后再分发')
+  }
+}
 
 /**
  * 消息处理
@@ -125,8 +151,14 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
     }
 
     case 'SYNC_ARTICLE': {
-      const { article, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId } = message.payload
+      const { article, platforms, allSelectedPlatforms, skipHistory, source = 'popup', syncId: passedSyncId, authToken, siteOrigin } = message.payload
       const senderTabId = sender?.tab?.id
+
+      // DreamWorks 定制：本扩展只分发 DreamWorks GEO 文章工作台的文章，且要求已登录主站账号
+      if (source !== 'dw-site') {
+        throw new Error('DreamWorks 分发助手仅支持分发工作台的文章，请前往 GEO 文章工作台（/writing/studio）发起分发')
+      }
+      await assertDwSiteLogin(authToken, siteOrigin)
 
       const rateLimitWarning = await checkSyncFrequency(platforms)
 
@@ -612,7 +644,7 @@ async function handleMessage(message: MessageAction, sender?: chrome.runtime.Mes
 function createContextMenu() {
   chrome.contextMenus.create({
     id: 'wechatsync-open-editor',
-    title: '同步助手 - 提取并编辑文章',
+    title: '分发助手 - 提取并编辑文章',
     contexts: ['page', 'selection'],
   })
 }
@@ -706,27 +738,37 @@ chrome.runtime.onInstalled.addListener(async details => {
     const previousVersion = details.previousVersion || '0.0.0'
     const currentVersion = chrome.runtime.getManifest().version
 
-    // 重要版本升级时显示更新日志
-    const showChangelogVersions = ['2.0.8', '2.0.9']
+    // 重要版本升级时显示更新日志（DreamWorks 主站扩展页）
+    const showChangelogVersions = ['2.0.7']
     if (
       showChangelogVersions.includes(currentVersion) ||
       (previousVersion.startsWith('1.') && currentVersion.startsWith('2.'))
     ) {
-      chrome.tabs.create({
-        url: 'https://www.wechatsync.com/changelog?from=' + previousVersion + '&to=' + currentVersion,
-        active: true,
-      })
+      openSitePage('https://dream-works.zrt-zkry.com/extension#ext-changelog').catch(() => {})
     }
   }
 
-  // 首次安装时打开欢迎页
+  // 首次安装时打开扩展内置欢迎页（离线可用，不依赖官网是否已上线扩展页）
   if (details.reason === 'install') {
-    chrome.tabs.create({
-      url: 'https://www.wechatsync.com/?utm_source=extension&utm_medium=install',
-      active: true,
-    })
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html'), active: true })
   }
 })
+
+const SITE_HOME = 'https://dream-works.zrt-zkry.com/'
+
+/** 打开主站页面；目标页未上线（404/不可达）时回退到首页，避免安装后跳到空白页 */
+async function openSitePage(url: string) {
+  let target = url
+  try {
+    const resp = await fetch(url.split('#')[0], { cache: 'no-store' })
+    if (!resp.ok) {
+      target = SITE_HOME
+    }
+  } catch {
+    target = SITE_HOME
+  }
+  chrome.tabs.create({ url: target, active: true })
+}
 
 /**
  * 启动时初始化 MCP（如果已启用）
