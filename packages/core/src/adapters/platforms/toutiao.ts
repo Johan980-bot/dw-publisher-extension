@@ -119,10 +119,11 @@ export class ToutiaoAdapter extends CodeAdapter {
     }
   }
 
-  /**
-   * 上传图片（/spice/image，multipart 字段名 image）
-   */
-  async uploadImageByUrl(url: string): Promise<ImageUploadResult> {
+  /** 上传结果（头条协议字段） */
+  private async uploadToutiaoImage(
+    url: string,
+    forCover = false
+  ): Promise<{ url: string; uri: string; width: number; height: number; mime: string }> {
     const imageResponse = await this.runtime.fetch(url)
     if (!imageResponse.ok) {
       throw new Error('图片下载失败: ' + url)
@@ -130,11 +131,19 @@ export class ToutiaoAdapter extends CodeAdapter {
     const blob = await imageResponse.blob()
     const filename = this.getFilenameFromUrl(url) || 'image.jpg'
 
+    const params = new URLSearchParams({
+      // 正文图 20020002，封面 20020003（不一样，混用会被判 uri 非法）
+      upload_source: forCover ? UPLOAD_SOURCE : '20020002',
+      aid: AID,
+      device_platform: 'web',
+    })
+    if (forCover) params.set('need_cover_url', '1')
+
     const formData = new FormData()
     formData.append('image', blob, filename)
 
     const response = await this.runtime.fetch(
-      `https://mp.toutiao.com/spice/image?upload_source=${UPLOAD_SOURCE}&aid=${AID}&device_platform=web`,
+      `https://mp.toutiao.com/spice/image?${params.toString()}`,
       {
         method: 'POST',
         credentials: 'include',
@@ -145,15 +154,36 @@ export class ToutiaoAdapter extends CodeAdapter {
     const res = await this.parseJson(response, '图片上传')
     this.raiseIfProtocolError(res, '图片上传失败')
     const data = res?.data || {}
-    const imageUrl = data.origin_image_url || data.image_url || data.url
-    if (!imageUrl) {
-      throw new Error('图片上传失败：响应缺少图片地址')
+    const imageUrl = data.image_url || data.origin_image_url || data.url
+    const imageUri = data.image_uri || data.origin_image_uri || ''
+    if (!imageUrl || !imageUri) {
+      throw new Error('图片上传失败：响应缺少 image_url/image_uri')
     }
 
     return {
       url: imageUrl,
+      uri: imageUri,
+      width: Number(data.image_width) || 0,
+      height: Number(data.image_height) || 0,
+      mime: data.image_mime_type || 'image/jpeg',
+    }
+  }
+
+  /**
+   * 上传正文图片。头条要求正文 img 带 web_uri/img_width/img_height（缺一个就报 7115 图片uri非法）
+   */
+  async uploadImageByUrl(url: string): Promise<ImageUploadResult> {
+    const img = await this.uploadToutiaoImage(url, false)
+    return {
+      url: img.url,
       attrs: {
-        'data-uri': data.origin_image_uri || data.image_uri || '',
+        class: '',
+        'ic-uri': '',
+        image_type: img.mime,
+        mime_type: '',
+        web_uri: img.uri,
+        img_width: img.width,
+        img_height: img.height,
       },
     }
   }
@@ -191,21 +221,32 @@ export class ToutiaoAdapter extends CodeAdapter {
       const mediaId = String(newData?.data?.media_id || newData?.data?.media?.id || '')
 
       let content = article.html || ''
+      // 不做 skipPatterns：正文里任何外链图都会被头条判 7115，必须全部转存拿到 web_uri
       content = await this.processImages(
         content,
         (src) => this.uploadImageByUrl(src),
         {
-          skipPatterns: ['pstatp.com', 'toutiao.com', 'toutiaostatic.com', 'toutiaoimg.com', 'bytecdn.cn'],
           onProgress: options?.onImageProgress,
         }
       )
 
-      // 封面：有就上传并挂到 feed 封面
-      let cover: { url: string; uri: string; width: number; height: number } | null = null
+      // 封面：走封面上传通道，字段按现行编辑器草稿格式补全（宽高不能为 0）
+      let cover: Record<string, string | number> | null = null
       if (article.cover) {
         try {
-          const up = await this.uploadImageByUrl(article.cover)
-          cover = { url: up.url, uri: String(up.attrs?.['data-uri'] || ''), width: 0, height: 0 }
+          const img = await this.uploadToutiaoImage(article.cover, true)
+          cover = {
+            url: img.url,
+            uri: img.uri,
+            web_uri: img.uri,
+            ic_uri: '',
+            width: img.width,
+            height: img.height,
+            thumb_width: img.width,
+            thumb_height: img.height,
+            id: 0,
+            pos: 0,
+          }
         } catch (e) {
           logger.warn('封面上传失败，继续不带封面存草稿:', (e as Error).message)
         }
@@ -246,9 +287,9 @@ export class ToutiaoAdapter extends CodeAdapter {
         timer_status: '0',
         timer_time: '',
         article_type: '0',
-        pgc_id: '',
+        pgc_id: '0',
         educluecard: '',
-        draft_form_data: JSON.stringify({ coverType: cover ? 1 : 2 }),
+        draft_form_data: JSON.stringify({ coverType: 2 }),
         pgc_feed_covers: JSON.stringify(cover ? [cover] : []),
         article_ad_type: String(articleAdType),
         is_fans_article: '0',
@@ -260,11 +301,8 @@ export class ToutiaoAdapter extends CodeAdapter {
         star_order_name: '',
         customer_nick_name: '',
         activity_tag: '0',
-        trends_writing_tag: '',
+        trends_writing_tag: '0',
         claim_exclusive: '0',
-      }
-      if (cover?.uri) {
-        form.ic_uri_list = cover.uri
       }
 
       const csrf = await this.csrfHeaders()
