@@ -54,13 +54,20 @@ export class NeteaseAdapter extends CodeAdapter {
         `https://mp.163.com/wemedia/navinfo.do?_=${Date.now()}`,
         { credentials: 'include' }
       )
-      const data = (await response.json()) as {
+      const resText = await response.text()
+      let data: {
         code?: number
         data?: {
           wemediaId: string | number
           tname: string
           icon: string
         }
+      }
+      try {
+        data = JSON.parse(resText)
+      } catch {
+        // 未登录时接口可能直接吐 HTML 登录页
+        return { isAuthenticated: false, error: '未登录' }
       }
 
       if (data.code !== 1 || !data.data?.wemediaId) {
@@ -107,10 +114,16 @@ export class NeteaseAdapter extends CodeAdapter {
       }
     )
 
-    const res = (await response.json()) as {
+    const resText = await response.text()
+    let res: {
       code?: number
       data?: { url?: string }
       msg?: string
+    }
+    try {
+      res = JSON.parse(resText)
+    } catch {
+      throw new Error('图片上传失败：接口返回非 JSON（' + resText.slice(0, 120) + '）')
     }
 
     const imageUrl = res.data?.url
@@ -167,10 +180,16 @@ export class NeteaseAdapter extends CodeAdapter {
         }
       )
 
-      const res = (await response.json()) as {
+      const resText = await response.text()
+      let res: {
         code?: number
         msg?: string
         data?: string // 存草稿成功时形如 "docId=xxx&pkId=null"
+      }
+      try {
+        res = JSON.parse(resText)
+      } catch {
+        throw new Error('保存草稿失败：接口返回非 JSON（' + resText.slice(0, 120) + '）')
       }
 
       logger.debug('Save response:', res)

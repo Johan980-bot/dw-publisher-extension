@@ -167,9 +167,15 @@ export class ToutiaoAdapter extends CodeAdapter {
         }
       )
 
-      const res = (await response.json()) as {
+      const resText = await response.text()
+      let res: {
         message?: string
         data?: { pgc_id?: string | number }
+      }
+      try {
+        res = JSON.parse(resText)
+      } catch {
+        throw new Error('保存草稿失败：接口返回非 JSON（' + resText.slice(0, 120) + '）')
       }
 
       logger.debug('Save response:', res)
@@ -182,7 +188,8 @@ export class ToutiaoAdapter extends CodeAdapter {
 
       return this.createResult(true, {
         postId,
-        postUrl: `https://mp.toutiao.com/profile_v3/graphic/publish?pgc_id=${postId}`,
+        // 新版后台草稿列表（旧 profile_v3 带 pgc_id 的直达链接会报「无效文章ID」）
+        postUrl: 'https://mp.toutiao.com/profile_v4/manage/draft',
         draftOnly: options?.draftOnly ?? true,
       })
     }).catch((error) =>
