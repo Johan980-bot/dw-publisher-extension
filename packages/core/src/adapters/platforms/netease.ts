@@ -35,14 +35,6 @@ export class NeteaseAdapter extends CodeAdapter {
       },
       resourceTypes: ['xmlhttprequest'],
     },
-    {
-      urlFilter: '*://upload.ws.126.net/*',
-      headers: {
-        Origin: 'https://mp.163.com',
-        Referer: 'https://mp.163.com/',
-      },
-      resourceTypes: ['xmlhttprequest'],
-    },
   ]
 
   /**
@@ -105,8 +97,9 @@ export class NeteaseAdapter extends CodeAdapter {
     formData.append('file', blob, 'image.jpg')
     formData.append('from', 'neteasecode_mp')
 
+    // 现行前端走本站 /api/v3/upload/picupload（旧 upload.ws.126.net/picupload 已改为 IP 白名单，第三方一律 Your IP is not allowed）
     const response = await this.runtime.fetch(
-      `https://upload.ws.126.net/picupload?_=${Date.now()}&wemediaId=${this.wemediaId}`,
+      'https://mp.163.com/api/v3/upload/picupload',
       {
         method: 'POST',
         credentials: 'include',
@@ -117,6 +110,8 @@ export class NeteaseAdapter extends CodeAdapter {
     const resText = await response.text()
     let res: {
       code?: number
+      status?: number
+      url?: string
       data?: { url?: string }
       msg?: string
     }
@@ -126,7 +121,7 @@ export class NeteaseAdapter extends CodeAdapter {
       throw new Error('图片上传失败：接口返回非 JSON（' + resText.slice(0, 120) + '）')
     }
 
-    const imageUrl = res.data?.url
+    const imageUrl = res.url || res.data?.url
     if (!imageUrl) {
       throw new Error(res.msg || '图片上传失败')
     }
@@ -160,13 +155,14 @@ export class NeteaseAdapter extends CodeAdapter {
       )
 
       const response = await this.runtime.fetch(
-        'https://mp.163.com/article/status/api/publishV2.do',
+        'https://mp.163.com/wemedia/article/status/api/publishV2.do',
         {
           method: 'POST',
           credentials: 'include',
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
             Accept: 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
           },
           body: new URLSearchParams({
             title: article.title,
