@@ -182,6 +182,26 @@ async function loadSelectedPlatforms(): Promise<string[] | null> {
   }
 }
 
+/**
+ * 向当前标签页取 DreamWorks 工作台上下文（最新稿子 + 主站登录态）。
+ * 只有工作台页面（dw-bridge 中转）会回 siteOrigin/authToken；其他页面或无响应时返回 null。
+ */
+async function fetchDwSiteContext(): Promise<{ article: any | null; authToken: string; siteOrigin: string } | null> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.id) return null
+    const resp = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_ARTICLE' })
+    if (!resp || typeof resp.siteOrigin !== 'string' || !resp.siteOrigin) return null
+    return {
+      article: resp.article ?? null,
+      authToken: typeof resp.authToken === 'string' ? resp.authToken : '',
+      siteOrigin: resp.siteOrigin,
+    }
+  } catch {
+    return null
+  }
+}
+
 export const useSyncStore = create<SyncState>((set, get) => ({
   status: 'loading',
   article: null,
@@ -400,7 +420,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   startSync: async () => {
-    const { article, selectedPlatforms, platforms } = get()
+    const { selectedPlatforms, platforms } = get()
+    let article = get().article
     logger.debug('startSync called', { article, selectedPlatforms })
 
     if (!article) {
@@ -422,12 +443,36 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     set({ status: 'syncing', results: [], error: null, imageProgress: null, platformProgress: new Map(), currentSyncId: syncId })
 
     try {
+      // 弹窗发起也走工作台链路：向当前标签页取最新稿子与主站登录态（dw-bridge 中转），
+      // 带上 source/authToken/siteOrigin，background 的 dw-site 校验才能通过
+      const dwCtx = await fetchDwSiteContext()
+      if (dwCtx?.article) {
+        article = dwCtx.article
+        set({ article })
+      }
+
       // SYNC_ARTICLE 现在同时处理 DSL 和 CMS 平台
       // 传递 syncId 给 background，background 会用这个 ID
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
-        payload: { article, platforms: selectedPlatforms, syncId },
+        payload: {
+          article,
+          platforms: selectedPlatforms,
+          syncId,
+          ...(dwCtx ? { source: 'dw-site', authToken: dwCtx.authToken, siteOrigin: dwCtx.siteOrigin } : {}),
+        },
       })
+
+      // background 业务拒绝（如未在工作台页、登录失效）走 response.error，不再当成空结果的成功
+      if (!response || response.error) {
+        set({
+          status: 'idle',
+          results: [],
+          error: response?.error || '分发服务无响应，请重新打开扩展再试',
+          imageProgress: null,
+        })
+        return
+      }
 
       const allResults: SyncResult[] = response.results || []
       const rateLimitWarning: string | null = response.rateLimitWarning || null
@@ -472,7 +517,8 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   retryFailed: async () => {
-    const { article, results, platforms } = get()
+    const { results, platforms } = get()
+    let article = get().article
 
     if (!article) {
       set({ error: '未检测到文章内容' })
@@ -498,11 +544,34 @@ export const useSyncStore = create<SyncState>((set, get) => ({
     set({ status: 'syncing', results: successResults, error: null, imageProgress: null, platformProgress: new Map(), currentSyncId: syncId })
 
     try {
+      // 同 startSync：取工作台上下文，携带 source/authToken/siteOrigin；response.error 是业务拒绝
+      const dwCtx = await fetchDwSiteContext()
+      if (dwCtx?.article) {
+        article = dwCtx.article
+        set({ article })
+      }
+
       // SYNC_ARTICLE 现在同时处理 DSL 和 CMS 平台
       const response = await chrome.runtime.sendMessage({
         type: 'SYNC_ARTICLE',
-        payload: { article, platforms: failedPlatformIds, skipHistory: true, syncId },
+        payload: {
+          article,
+          platforms: failedPlatformIds,
+          skipHistory: true,
+          syncId,
+          ...(dwCtx ? { source: 'dw-site', authToken: dwCtx.authToken, siteOrigin: dwCtx.siteOrigin } : {}),
+        },
       })
+
+      if (!response || response.error) {
+        set({
+          status: 'completed',
+          results: successResults,
+          error: response?.error || '分发服务无响应，请重新打开扩展再试',
+          imageProgress: null,
+        })
+        return
+      }
 
       const retryResults: SyncResult[] = response.results || []
 

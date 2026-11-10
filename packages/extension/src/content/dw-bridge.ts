@@ -188,7 +188,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!data || data.source !== 'dw-site' || data.type !== 'dw-ext-article') return
     window.clearTimeout(timer)
     window.removeEventListener('message', onPageMessage)
-    sendResponse({ article: data.article ?? null })
+    // 透传页面带回的主站登录态：弹窗发起同步时 background 的 dw-site 校验要用
+    sendResponse({
+      article: data.article ?? null,
+      authToken: typeof data.authToken === 'string' ? data.authToken : '',
+      siteOrigin: window.location.origin
+    })
   }
   window.addEventListener('message', onPageMessage)
   window.postMessage({ source: 'dw-ext', type: 'dw-ext-article-request' }, window.location.origin)
