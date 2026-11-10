@@ -1,6 +1,7 @@
 /**
  * 头条号适配器
  * https://mp.toutiao.com
+ * 协议字段参考现行创作者中心（2026）：save=0 存草稿 / save=1 发布；图片走 /spice/image
  */
 import { CodeAdapter, ImageUploadResult } from '../code-adapter'
 import type { Article, AuthResult, SyncResult, PlatformMeta } from '../../types'
@@ -9,12 +10,23 @@ import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('Toutiao')
 
+const AID = '1231'
+const UPLOAD_SOURCE = '20020003'
+
+/** 头条协议错误码 → 可读提示（来自现行创作者中心约定） */
+const CODE_MESSAGES: Record<number, string> = {
+  2222: '头条要求可信浏览器校验，请在头条号后台手动发一次文后再试',
+  3001: '头条要求文本验证码，请在头条号后台手动操作一次后再试',
+  3002: '头条要求滑块验证码，请在头条号后台手动操作一次后再试',
+  3022: '该头条号尚未完成创作者注册/账号信息未完善，请先在头条号后台完善后再分发',
+}
+
 export class ToutiaoAdapter extends CodeAdapter {
   meta: PlatformMeta = {
     id: 'toutiao',
     name: '头条号',
     icon: 'https://sf1-ttcdn-tos.pstatp.com/obj/ttfe/pgcfe/sz/mp_logo.png',
-    homepage: 'https://mp.toutiao.com/profile_v3/graphic/publish',
+    homepage: 'https://mp.toutiao.com/profile_v4/graphic/publish',
     capabilities: ['article', 'draft', 'image_upload'],
   }
 
@@ -31,11 +43,47 @@ export class ToutiaoAdapter extends CodeAdapter {
       urlFilter: '*://mp.toutiao.com/*',
       headers: {
         Origin: 'https://mp.toutiao.com',
-        Referer: 'https://mp.toutiao.com/',
+        Referer: 'https://mp.toutiao.com/profile_v4/graphic/publish',
       },
       resourceTypes: ['xmlhttprequest'],
     },
   ]
+
+  /** 从 cookie 取 CSRF token 放进请求头（头条协议要求） */
+  private async csrfHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {}
+    const pairs: [string, string][] = [
+      ['passport_csrf_token', 'x-tt-passport-csrf-token'],
+      ['tt_csrf_token', 'x-tt-csrf-token'],
+    ]
+    for (const [cookieName, headerName] of pairs) {
+      try {
+        const value = this.runtime.getCookie
+          ? await this.runtime.getCookie('.toutiao.com', cookieName)
+          : (await this.runtime.cookies.get('.toutiao.com')).find(c => c.name === cookieName)?.value
+        if (value) headers[headerName] = value
+      } catch {
+        // 取不到就让请求自己去试，平台会回明确错误码
+      }
+    }
+    return headers
+  }
+
+  private async parseJson(res: Response, what: string): Promise<any> {
+    const text = await res.text()
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error(`${what}：接口返回非 JSON（${text.slice(0, 120)}）`)
+    }
+  }
+
+  private raiseIfProtocolError(payload: any, what: string): void {
+    const code = Number(payload?.code ?? 0)
+    if (!code) return
+    const msg = payload?.reason || payload?.message || `协议错误 ${code}`
+    throw new Error(CODE_MESSAGES[code] ? `${CODE_MESSAGES[code]}（${msg}）` : `${what}：${msg}`)
+  }
 
   /**
    * 检查登录状态
@@ -43,31 +91,28 @@ export class ToutiaoAdapter extends CodeAdapter {
   async checkAuth(): Promise<AuthResult> {
     try {
       const response = await this.runtime.fetch(
-        `https://mp.toutiao.com/mp/agw/media/get_media_info?_=${Date.now()}`,
+        'https://mp.toutiao.com/mp/agw/media/user_login_status_api',
         { credentials: 'include' }
       )
-      const data = (await response.json()) as {
-        data?: {
-          user?: {
-            id: string | number
-            screen_name: string
-            https_avatar_url: string
-          }
-        }
-        message?: string
-      }
-
-      if (!data.data?.user?.id) {
+      const data = await this.parseJson(response, '登录检查')
+      if (!data?.data?.is_login) {
         return { isAuthenticated: false, error: '未登录' }
       }
 
-      this.userId = String(data.data.user.id)
+      // 登录有效，再取账号资料
+      const infoResp = await this.runtime.fetch(
+        'https://mp.toutiao.com/mp/agw/media/get_media_info',
+        { credentials: 'include' }
+      )
+      const info = await this.parseJson(infoResp, '账号资料')
+      const user = info?.data?.user
+      this.userId = String(user?.id || data.data.user_id || '')
 
       return {
         isAuthenticated: true,
         userId: this.userId,
-        username: data.data.user.screen_name || this.userId,
-        avatar: data.data.user.https_avatar_url,
+        username: user?.screen_name || this.userId,
+        avatar: user?.https_avatar_url,
       }
     } catch (error) {
       return { isAuthenticated: false, error: (error as Error).message }
@@ -75,7 +120,7 @@ export class ToutiaoAdapter extends CodeAdapter {
   }
 
   /**
-   * 上传图片
+   * 上传图片（/spice/image，multipart 字段名 image）
    */
   async uploadImageByUrl(url: string): Promise<ImageUploadResult> {
     const imageResponse = await this.runtime.fetch(url)
@@ -86,10 +131,10 @@ export class ToutiaoAdapter extends CodeAdapter {
     const filename = this.getFilenameFromUrl(url) || 'image.jpg'
 
     const formData = new FormData()
-    formData.append('upfile', blob, filename)
+    formData.append('image', blob, filename)
 
     const response = await this.runtime.fetch(
-      'https://mp.toutiao.com/mp/agw/article_material/photo/upload_picture?type=ueditor&pgc_watermark=1&action=uploadimage&encode=utf-8',
+      `https://mp.toutiao.com/spice/image?upload_source=${UPLOAD_SOURCE}&aid=${AID}&device_platform=web`,
       {
         method: 'POST',
         credentials: 'include',
@@ -97,17 +142,20 @@ export class ToutiaoAdapter extends CodeAdapter {
       }
     )
 
-    const res = (await response.json()) as {
-      state?: string
-      url?: string
-      message?: string
+    const res = await this.parseJson(response, '图片上传')
+    this.raiseIfProtocolError(res, '图片上传失败')
+    const data = res?.data || {}
+    const imageUrl = data.origin_image_url || data.image_url || data.url
+    if (!imageUrl) {
+      throw new Error('图片上传失败：响应缺少图片地址')
     }
 
-    if (res.state !== 'SUCCESS' || !res.url) {
-      throw new Error(res.message || '图片上传失败')
+    return {
+      url: imageUrl,
+      attrs: {
+        'data-uri': data.origin_image_uri || data.image_uri || '',
+      },
     }
-
-    return { url: res.url }
   }
 
   private getFilenameFromUrl(url: string): string | null {
@@ -124,8 +172,6 @@ export class ToutiaoAdapter extends CodeAdapter {
    * 发布文章（保存草稿）
    */
   async publish(article: Article, options?: PublishOptions): Promise<SyncResult> {
-
-
     return this.withHeaderRules(this.HEADER_RULES, async () => {
       if (!this.userId) {
         const auth = await this.checkAuth()
@@ -134,61 +180,119 @@ export class ToutiaoAdapter extends CodeAdapter {
         }
       }
 
+      // 取发文默认值（article_ad_type / media_id），顺便校验会话与注册状态
+      const newResp = await this.runtime.fetch(
+        'https://mp.toutiao.com/mp/agw/article/new?article_type=0&format=json&compat=1&column_no=',
+        { credentials: 'include' }
+      )
+      const newData = await this.parseJson(newResp, '发文初始化')
+      this.raiseIfProtocolError(newData, '发文初始化失败')
+      const articleAdType = Number(newData?.data?.article_ad_type) || 3
+      const mediaId = String(newData?.data?.media_id || newData?.data?.media?.id || '')
+
       let content = article.html || ''
       content = await this.processImages(
         content,
         (src) => this.uploadImageByUrl(src),
         {
-          skipPatterns: ['pstatp.com', 'toutiao.com', 'toutiaostatic.com', 'toutiaoimg.com'],
+          skipPatterns: ['pstatp.com', 'toutiao.com', 'toutiaostatic.com', 'toutiaoimg.com', 'bytecdn.cn'],
           onProgress: options?.onImageProgress,
         }
       )
 
+      // 封面：有就上传并挂到 feed 封面
+      let cover: { url: string; uri: string; width: number; height: number } | null = null
+      if (article.cover) {
+        try {
+          const up = await this.uploadImageByUrl(article.cover)
+          cover = { url: up.url, uri: String(up.attrs?.['data-uri'] || ''), width: 0, height: 0 }
+        } catch (e) {
+          logger.warn('封面上传失败，继续不带封面存草稿:', (e as Error).message)
+        }
+      }
+
+      const plainLength = content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length
+      const extra = {
+        content_source: 100000000402,
+        content_word_cnt: plainLength,
+        is_multi_title: 0,
+        sub_titles: [],
+        gd_ext: {
+          entrance: '',
+          from_page: 'publisher_mp',
+          enter_from: 'PC',
+          device_platform: 'mp',
+          is_message: 0,
+        },
+        tuwen_wtt_transfer_switch: '1',
+      }
+      const searchInfo = {
+        searchTopOne: 0,
+        abstract: article.summary || '',
+        clue_id: '',
+      }
+
+      const form: Record<string, string> = {
+        source: '29',
+        extra: JSON.stringify(extra),
+        title: article.title,
+        content,
+        title_id: mediaId ? `${Date.now()}_${mediaId}` : '',
+        search_creation_info: JSON.stringify(searchInfo),
+        mp_editor_stat: '{}',
+        is_refute_rumor: '0',
+        save: '0', // 0=存草稿，1=直接发布（现行协议）
+        entrance: '',
+        timer_status: '0',
+        timer_time: '',
+        article_type: '0',
+        pgc_id: '',
+        educluecard: '',
+        draft_form_data: JSON.stringify({ coverType: cover ? 1 : 2 }),
+        pgc_feed_covers: JSON.stringify(cover ? [cover] : []),
+        article_ad_type: String(articleAdType),
+        is_fans_article: '0',
+        govern_forward: '0',
+        praise: '0',
+        disable_praise: '0',
+        tree_plan_article: '0',
+        star_order_id: '',
+        star_order_name: '',
+        customer_nick_name: '',
+        activity_tag: '0',
+        trends_writing_tag: '',
+        claim_exclusive: '0',
+      }
+      if (cover?.uri) {
+        form.ic_uri_list = cover.uri
+      }
+
+      const csrf = await this.csrfHeaders()
       const response = await this.runtime.fetch(
-        'https://mp.toutiao.com/mp/agw/article/publish?source=mp&type=article',
+        `https://mp.toutiao.com/mp/agw/article/publish?source=mp&type=article&aid=${AID}&mp_publish_ab_val=0`,
         {
           method: 'POST',
           credentials: 'include',
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            Accept: 'application/json, text/plain, */*',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...csrf,
           },
-          body: new URLSearchParams({
-            title: article.title,
-            content,
-            save: '1', // 1=存草稿，不直接发布
-            pgc_id: '0',
-            article_type: '0',
-            article_ad_type: '2',
-            from_diagnosis: '0',
-            origin_debut_check_pgc_normal: '0',
-            tree_plan_article: '0',
-            pgc_feed_covers: '[]',
-          }),
+          body: new URLSearchParams(form),
         }
       )
 
-      const resText = await response.text()
-      let res: {
-        message?: string
-        data?: { pgc_id?: string | number }
-      }
-      try {
-        res = JSON.parse(resText)
-      } catch {
-        throw new Error('保存草稿失败：接口返回非 JSON（' + resText.slice(0, 120) + '）')
-      }
-
+      const res = await this.parseJson(response, '保存草稿失败')
       logger.debug('Save response:', res)
+      this.raiseIfProtocolError(res, '保存草稿失败')
 
-      if (!res.data?.pgc_id) {
-        throw new Error(res.message || '保存草稿失败')
-      }
-
-      const postId = String(res.data.pgc_id)
+      const data = res?.data || {}
+      const postId = String(data.pgcId || data.pgc_id || '')
 
       return this.createResult(true, {
         postId,
-        // 新版后台草稿列表（旧 profile_v3 带 pgc_id 的直达链接会报「无效文章ID」）
+        // 新版后台草稿列表（带 pgc_id 的直达链接已失效）
         postUrl: 'https://mp.toutiao.com/profile_v4/manage/draft',
         draftOnly: options?.draftOnly ?? true,
       })
